@@ -27,18 +27,48 @@ with st.sidebar:
 # --- 2. Automatische Generierung der Zeit-Intervalle ---
 zeit_intervalle = list(range(0, gesamt_dauer_min + 1, 15))
 
-# Dummy-Daten generieren
+# Dummy-Daten generieren (NEUE LOGIK)
 default_pegel = []
+pegel_bei_30 = rws # Variable zum Speichern des Werts bei Min 30
+# Ab wann beginnen die letzten 3 Werte? (Gesamtdauer - 2 * 15min)
+start_letzte_3 = gesamt_dauer_min - 30 
+
 for t in zeit_intervalle:
+    # A) PUMP-PHASE
     if t <= pump_end_min:
-        # Absenkung (simuliert)
-        wert = rws + (1.5 * np.log10(t + 1) / np.log10(pump_end_min + 1)) 
-        if t == 0: wert = rws
+        if t == 0:
+            wert = rws
+        elif t <= 30:
+            # Bis Minute 30: Berechnung (logarithmische Absenkung)
+            wert = rws + (1.5 * np.log10(t + 1) / np.log10(pump_end_min + 1)) 
+            # WICHTIG: Wert bei Minute 30 speichern
+            if t == 30:
+                pegel_bei_30 = wert
+        else:
+            # Ab Minute 45 bis Ende Pumpen (480): Konstant Wert von Min 30
+            wert = pegel_bei_30
+            
+    # B) WIEDERANSTIEG-PHASE
     else:
-        # Wiederanstieg (simuliert)
-        time_recovery = t - pump_end_min
-        wert = default_pegel[-1] - (default_pegel[-1] - rws) * (time_recovery / 120)
-        if wert < rws: wert = rws
+        # Sind wir bei den letzten 3 Werten? -> Setze auf RWS
+        if t >= start_letzte_3:
+            wert = rws
+        else:
+            # Dazwischen: Linearer Wiederanstieg vom "Pegel 30" zurück zum RWS
+            # Zeit seit Pumpen-Ende
+            time_recovery = t - pump_end_min
+            # Zeit, die für den Anstieg zur Verfügung steht (bis zu den letzten 3 Werten)
+            time_window = start_letzte_3 - pump_end_min
+            
+            if time_window > 0:
+                # Faktor 0 bis 1
+                factor = time_recovery / time_window
+                wert = pegel_bei_30 - (pegel_bei_30 - rws) * factor
+            else:
+                wert = rws # Fallback falls Fenster zu klein
+                
+            if wert < rws: wert = rws # Nicht höher als RWS steigen
+
     default_pegel.append(round(wert, 2))
 
 df_template = pd.DataFrame({
@@ -71,10 +101,9 @@ if st.button("Diagramme aktualisieren 🔄", type="primary"):
     time_at_max = zeiten[idx_max]
 
     # --- PLOT START ---
-    # sharex=True ist an, aber wir zwingen ax1 gleich dazu, die Labels zu zeigen
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 11), sharex=True, gridspec_kw={'height_ratios': [2, 1]})
     
-    # Gemeinsame Achsen-Formatierung (Ticks und Labels für Stunden)
+    # Formatierung für Zeit-Achse
     ticks = np.arange(0, gesamt_dauer_min + 1, 60)
     tick_labels = [f"{int(t/60)}h" for t in ticks]
 
@@ -89,7 +118,7 @@ if st.button("Diagramme aktualisieren 🔄", type="primary"):
 
     ax1.axvline(x=pump_end_min, color='#d62828', linestyle='--', linewidth=2, label='Pumpe AUS')
 
-    # Tiefster Punkt (nur Text)
+    # Tiefster Punkt (Text)
     ax1.plot(time_at_max, max_tiefe, marker='o', color='red', markersize=8)
     ax1.text(
         time_at_max, 
@@ -111,12 +140,10 @@ if st.button("Diagramme aktualisieren 🔄", type="primary"):
     # LEGENDE
     ax1.legend(loc='lower center', bbox_to_anchor=(0.5, 1.01), ncol=3, frameon=False)
 
-    # WICHTIG: Hier zwingen wir die X-Achse wieder sichtbar
+    # X-Achse sichtbar machen
     ax1.tick_params(labelbottom=True)
     ax1.set_xticks(ticks)
     ax1.set_xticklabels(tick_labels)
-    # Optional: Auch hier "Zeit" anschreiben
-    # ax1.set_xlabel('Zeit [h]', fontsize=11) 
 
     # ---------------------------------------------------------
     # Diagramm 2: Zeit vs. Förderleistung Q
@@ -125,12 +152,11 @@ if st.button("Diagramme aktualisieren 🔄", type="primary"):
     ax2.fill_between(zeiten, q_values, step="post", alpha=0.3, color='#2a9d8f')
     ax2.axvline(x=pump_end_min, color='#d62828', linestyle='--', linewidth=2)
     ax2.set_ylabel('Q [m³/h]', fontsize=11)
-    ax2.set_xlabel('Zeit [Std]', fontsize=11) # Beschriftung unten
+    ax2.set_xlabel('Zeit [Std]', fontsize=11)
     ax2.set_title('2. Pumpenleistung über die Zeit', fontsize=13, fontweight='bold')
     ax2.set_ylim(0, q_soll * 1.2)
     ax2.grid(True, linestyle='--', alpha=0.6)
     
-    # X-Achse formatieren (auch unten sicherstellen)
     ax2.set_xticks(ticks)
     ax2.set_xticklabels(tick_labels)
 
