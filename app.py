@@ -9,11 +9,17 @@ st.set_page_config(page_title="Bohrprotokoll Profi", page_icon="💧", layout="w
 st.title("💧 Bohrprotokoll: Langzeit-Pumpversuch")
 st.markdown("Dokumentation über **9 Stunden** mit **15-Minuten-Intervallen**.")
 
-# --- 1. Eingabe der Parameter ---
+# --- 1. Eingabe der Parameter (Sidebar) ---
 with st.sidebar:
     st.header("⚙️ Einstellungen")
     projekt_name = st.text_input("Projektname", "BV Müller - Brunnen 1")
+    
+    st.subheader("Wasserstände")
     rws = st.number_input("Ruhewasserspiegel (m u. GOK)", value=2.10, step=0.01)
+    # NEU: Das Feld für den tiefsten Punkt
+    tiefster_punkt = st.number_input("Tiefster Punkt (m u. GOK)", value=3.50, step=0.1, help="Wert für die konstante Phase von Min 30 bis Ende")
+    
+    st.subheader("Pumpe")
     q_soll = st.number_input("Förderleistung (m³/h)", value=5.0, step=0.1)
     
     st.markdown("---")
@@ -27,10 +33,9 @@ with st.sidebar:
 # --- 2. Automatische Generierung der Zeit-Intervalle ---
 zeit_intervalle = list(range(0, gesamt_dauer_min + 1, 15))
 
-# Dummy-Daten generieren (NEUE LOGIK)
+# Dummy-Daten generieren (MIT NEUER LOGIK)
 default_pegel = []
-pegel_bei_30 = rws # Variable zum Speichern des Werts bei Min 30
-# Ab wann beginnen die letzten 3 Werte? (Gesamtdauer - 2 * 15min)
+# Start der letzten 3 Werte (Gesamtdauer - 45 min)
 start_letzte_3 = gesamt_dauer_min - 30 
 
 for t in zeit_intervalle:
@@ -38,36 +43,33 @@ for t in zeit_intervalle:
     if t <= pump_end_min:
         if t == 0:
             wert = rws
-        elif t <= 30:
-            # Bis Minute 30: Berechnung (logarithmische Absenkung)
-            wert = rws + (1.5 * np.log10(t + 1) / np.log10(pump_end_min + 1)) 
-            # WICHTIG: Wert bei Minute 30 speichern
-            if t == 30:
-                pegel_bei_30 = wert
+        elif t < 30:
+            # Anlaufphase (0 bis 30 Min): Logarithmische Annäherung an den tiefsten Punkt
+            # Wir skalieren so, dass bei t=30 genau "tiefster_punkt" erreicht wird
+            # ratio geht von 0 bis 1
+            ratio = np.log10(t + 1) / np.log10(31)
+            wert = rws + (tiefster_punkt - rws) * ratio
         else:
-            # Ab Minute 45 bis Ende Pumpen (480): Konstant Wert von Min 30
-            wert = pegel_bei_30
+            # Ab Minute 30 bis Ende Pumpen: KONSTANT der tiefste Punkt
+            wert = tiefster_punkt
             
     # B) WIEDERANSTIEG-PHASE
     else:
-        # Sind wir bei den letzten 3 Werten? -> Setze auf RWS
+        # Die letzten 3 Werte hart auf RWS setzen
         if t >= start_letzte_3:
             wert = rws
         else:
-            # Dazwischen: Linearer Wiederanstieg vom "Pegel 30" zurück zum RWS
-            # Zeit seit Pumpen-Ende
+            # Dazwischen: Linearer Wiederanstieg vom tiefsten Punkt zum RWS
             time_recovery = t - pump_end_min
-            # Zeit, die für den Anstieg zur Verfügung steht (bis zu den letzten 3 Werten)
             time_window = start_letzte_3 - pump_end_min
             
             if time_window > 0:
-                # Faktor 0 bis 1
                 factor = time_recovery / time_window
-                wert = pegel_bei_30 - (pegel_bei_30 - rws) * factor
+                wert = tiefster_punkt - (tiefster_punkt - rws) * factor
             else:
-                wert = rws # Fallback falls Fenster zu klein
+                wert = rws
                 
-            if wert < rws: wert = rws # Nicht höher als RWS steigen
+            if wert < rws: wert = rws
 
     default_pegel.append(round(wert, 2))
 
@@ -78,6 +80,8 @@ df_template = pd.DataFrame({
 
 # --- 3. Dateneingabe ---
 st.subheader("📝 Messwerte eingeben")
+# Info-Box aktualisiert
+st.info(f"Werte von Min 30 bis {pump_end_min} wurden automatisch auf {tiefster_punkt} m gesetzt.")
 edited_df = st.data_editor(df_template, height=250, use_container_width=True, num_rows="dynamic")
 
 # --- 4. Graphen erstellen ---
@@ -95,7 +99,7 @@ if st.button("Diagramme aktualisieren 🔄", type="primary"):
         else:
              q_values.append(0)
 
-    # --- Maximalen Absenkungspunkt finden ---
+    # Maximalen Punkt finden
     max_tiefe = pegel.max()
     idx_max = pegel.idxmax()
     time_at_max = zeiten[idx_max]
