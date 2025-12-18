@@ -86,26 +86,31 @@ if st.button("Diagramme aktualisieren 🔄", type="primary"):
     # Linie "Pumpe Aus"
     ax1.axvline(x=pump_end_min, color='#d62828', linestyle='--', linewidth=2, label='Pumpe AUS')
 
-    # Tiefster Punkt Markierung
+    # Tiefster Punkt Markierung (OHNE PFEIL)
     ax1.plot(time_at_max, max_tiefe, marker='o', color='red', markersize=8)
-    ax1.annotate(
+    
+    # Text direkt über dem Punkt platzieren
+    # Da die Y-Achse invertiert ist (unten ist größer), müssen wir vom y-Wert etwas abziehen,
+    # um "visuell nach oben" zu kommen.
+    ax1.text(
+        time_at_max, 
+        max_tiefe - 0.15, # Leichter Versatz nach "oben"
         f'Tiefster Punkt:\n{max_tiefe:.2f} m (bei {int(time_at_max)} min)',
-        xy=(time_at_max, max_tiefe), 
-        xytext=(time_at_max - 120, max_tiefe - 0.2), 
-        arrowprops=dict(facecolor='red', shrink=0.05, width=1, headwidth=8),
-        fontsize=10,
         color='red',
+        fontsize=10,
         fontweight='bold',
+        ha='center', # Horizontal zentriert über dem Punkt
+        va='bottom', # Der Text "steht" auf der Koordinate
         bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="red", alpha=0.8)
     )
 
     ax1.set_ylabel('Tiefe unter GOK [m]', fontsize=11)
-    ax1.set_title(f'1. Zeit-Absenkungs-Plan', fontsize=13, fontweight='bold', pad=40) # Mehr Platz oben für Legende
+    
+    # TITEL & LEGENDE (Layout wie gewünscht)
+    ax1.set_title(f'1. Zeit-Absenkungs-Plan', fontsize=13, fontweight='bold', pad=35) 
     ax1.invert_yaxis()
     ax1.grid(True, linestyle='--', alpha=0.6)
-    
-    # --- ÄNDERUNG: Legende nach oben außerhalb des Plots ---
-    ax1.legend(loc='upper center', bbox_to_anchor=(0.5, 1.15), ncol=3, frameon=False)
+    ax1.legend(loc='lower center', bbox_to_anchor=(0.5, 1.01), ncol=3, frameon=False)
 
     # ---------------------------------------------------------
     # Diagramm 2: Zeit vs. Förderleistung Q
