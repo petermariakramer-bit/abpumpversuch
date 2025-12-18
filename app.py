@@ -4,77 +4,126 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # --- Konfiguration der Seite ---
-st.set_page_config(page_title="Bohrprotokoll Generator", page_icon="💧")
+st.set_page_config(page_title="Bohrprotokoll Profi", page_icon="💧", layout="wide")
 
-st.title("💧 Bohrprotokoll: Abpumpversuch")
-st.write("Geben Sie die Messwerte ein, um das Zeit-Absenkungs-Diagramm zu erstellen.")
+st.title("💧 Bohrprotokoll: Langzeit-Pumpversuch")
+st.markdown("Dokumentation über **9 Stunden** mit **15-Minuten-Intervallen**.")
 
-# --- 1. Eingabe der Stammdaten ---
-with st.expander("📝 Stammdaten & Konfiguration", expanded=True):
-    col1, col2 = st.columns(2)
-    with col1:
-        projekt_name = st.text_input("Projektname", "BV Müller")
-        rws = st.number_input("Ruhewasserspiegel (m u. GOK)", value=2.10, step=0.01)
-    with col2:
-        pump_end_time = st.number_input("Pumpe AUS nach (min)", value=120, step=10)
-        max_tiefe = st.number_input("Max. Tiefe Diagramm (m)", value=5.0, step=0.5)
+# --- 1. Eingabe der Parameter ---
+with st.sidebar:
+    st.header("⚙️ Einstellungen")
+    projekt_name = st.text_input("Projektname", "BV Müller - Brunnen 1")
+    rws = st.number_input("Ruhewasserspiegel (m u. GOK)", value=2.10, step=0.01)
+    q_soll = st.number_input("Förderleistung (m³/h)", value=5.0, step=0.1)
+    
+    st.markdown("---")
+    pump_dauer_h = st.number_input("Pumpdauer (Stunden)", value=8, min_value=1)
+    gesamt_dauer_h = st.number_input("Gesamtdauer (Stunden)", value=9, min_value=pump_dauer_h)
+    
+    # Umrechnung in Minuten für die Berechnungen
+    pump_end_min = pump_dauer_h * 60
+    gesamt_dauer_min = gesamt_dauer_h * 60
 
-# --- 2. Dateneingabe (als Tabelle) ---
-st.subheader("Messwerte eingeben")
-st.info("Tragen Sie hier Zeit (Minuten) und Wasserstand (m) ein.")
+# --- 2. Automatische Generierung der Zeit-Intervalle ---
+# Wir erzeugen eine Liste von 0 bis zur Gesamtdauer in 15-Minuten-Schritten
+zeit_intervalle = list(range(0, gesamt_dauer_min + 1, 15))
 
-# Wir erstellen eine leere Vorlage für die Tabelle
-default_data = pd.DataFrame(
-    [
-        {"Zeit [min]": 0, "Wasserstand [m]": 2.10},
-        {"Zeit [min]": 10, "Wasserstand [m]": 3.25},
-        {"Zeit [min]": 60, "Wasserstand [m]": 3.42},
-        {"Zeit [min]": 120, "Wasserstand [m]": 3.43},
-        {"Zeit [min]": 130, "Wasserstand [m]": 2.30},
-        {"Zeit [min]": 180, "Wasserstand [m]": 2.12},
-    ]
+# Wir erstellen Dummy-Daten für den Wasserstand, damit die Tabelle nicht leer ist
+# (Simulierter Verlauf: Absenkung bis Stunde 8, dann Wiederanstieg)
+default_pegel = []
+for t in zeit_intervalle:
+    if t <= pump_end_min:
+        # Während des Pumpens: Wasserstand sinkt langsam (Logarithmisch angenähert)
+        wert = rws + (1.5 * np.log10(t + 1) / np.log10(pump_end_min + 1)) 
+        if t == 0: wert = rws
+    else:
+        # Wiederanstieg: Wasserstand geht zurück Richtung RWS
+        time_recovery = t - pump_end_min
+        wert = default_pegel[-1] - (default_pegel[-1] - rws) * (time_recovery / 120)
+        if wert < rws: wert = rws
+    
+    default_pegel.append(round(wert, 2))
+
+# DataFrame erstellen
+df_template = pd.DataFrame({
+    "Zeit [min]": zeit_intervalle,
+    "Wasserstand [m]": default_pegel
+})
+
+# --- 3. Dateneingabe ---
+st.subheader("📝 Messwerte eingeben")
+st.info(f"Die Tabelle wurde automatisch für {gesamt_dauer_h} Stunden im 15-Minuten-Takt vorbefüllt. Sie können die Wasserstände direkt bearbeiten.")
+
+# Editor für die Daten
+edited_df = st.data_editor(
+    df_template, 
+    height=300, 
+    use_container_width=True,
+    num_rows="dynamic"
 )
 
-# Der Data-Editor erlaubt das Hinzufügen/Löschen von Zeilen direkt in der App
-edited_df = st.data_editor(default_data, num_rows="dynamic")
+# --- 4. Graphen erstellen ---
+if st.button("Diagramme aktualisieren 🔄", type="primary"):
+    
+    # Daten auslesen
+    zeiten = edited_df["Zeit [min]"]
+    pegel = edited_df["Wasserstand [m]"]
+    
+    # Förderleistung Q berechnen (Konstant bis 8h, dann 0)
+    # Wir erstellen eine Liste für Q passend zu den Zeitpunkten
+    q_values = []
+    for t in zeiten:
+        if t <= pump_end_min and t > 0: # Bei Minute 0 läuft die Pumpe meist noch nicht voll, aber wir nehmen an ab Start
+             q_values.append(q_soll)
+        elif t == 0:
+             q_values.append(0) # Startpunkt
+        else:
+             q_values.append(0) # Pumpe aus
+            
+    # --- PLOT START ---
+    # Wir nutzen "subplots", um zwei Diagramme untereinander zu haben
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10), sharex=True, gridspec_kw={'height_ratios': [2, 1]})
+    
+    # --- Diagramm 1: Wasserstand (Absenkung) ---
+    ax1.plot(zeiten, pegel, marker='o', markersize=4, linestyle='-', linewidth=2, color='#0077b6', label='Messwerte')
+    
+    # Hilfslinien Diagramm 1
+    ax1.axhline(y=rws, color='gray', linestyle='--', linewidth=1, label=f'Ruhewasserspiegel ({rws}m)')
+    ax1.axvline(x=pump_end_min, color='#d62828', linestyle='--', linewidth=2, label=f'Pumpe AUS ({pump_dauer_h}h)')
+    
+    ax1.set_ylabel('Tiefe unter GOK [m]', fontsize=12)
+    ax1.set_title(f'Absenkung & Wiederanstieg: {projekt_name}', fontsize=14, fontweight='bold')
+    ax1.invert_yaxis() # Tiefe nach unten
+    ax1.grid(True, linestyle='--', alpha=0.6)
+    ax1.legend(loc='upper right')
 
-# --- 3. Graph erstellen ---
-if st.button("Diagramm erstellen 🚀"):
+    # --- Diagramm 2: Förderleistung (Q) ---
+    # Wir nutzen "step" (Stufen-Diagramm), da die Leistung abrupt endet
+    ax2.step(zeiten, q_values, where='post', color='#2a9d8f', linewidth=2, label='Förderrate Q')
+    ax2.fill_between(zeiten, q_values, step="post", alpha=0.3, color='#2a9d8f')
     
-    # Daten sortieren, damit die Linie nicht springt
-    df_sorted = edited_df.sort_values(by="Zeit [min]")
+    # Hilfslinie bei Diagramm 2
+    ax2.axvline(x=pump_end_min, color='#d62828', linestyle='--', linewidth=2)
     
-    zeiten = df_sorted["Zeit [min]"]
-    pegel = df_sorted["Wasserstand [m]"]
+    ax2.set_ylabel('Förderleistung Q [m³/h]', fontsize=12)
+    ax2.set_xlabel('Zeit [min]', fontsize=12)
+    ax2.set_title('Förderleistung über die Zeit', fontsize=12, fontweight='bold')
+    ax2.set_ylim(0, q_soll * 1.2) # Y-Achse etwas höher als der Wert
+    ax2.grid(True, linestyle='--', alpha=0.6)
+    ax2.legend(loc='upper right')
 
-    # Plot Design (Modern)
-    fig, ax = plt.subplots(figsize=(10, 6))
+    # X-Achsen-Ticks hübsch machen (stündlich beschriften)
+    ticks = np.arange(0, gesamt_dauer_min + 1, 60)
+    ax2.set_xticks(ticks)
     
-    # Kurve
-    ax.plot(zeiten, pegel, marker='o', linestyle='-', linewidth=2.5, color='#0077b6', label='Messdaten')
-    
-    # Hilfslinien
-    ax.axhline(y=rws, color='gray', linestyle='--', label=f'Ruhewasser ({rws} m)')
-    ax.axvline(x=pump_end_time, color='#d62828', linestyle=':', linewidth=2, label='Pumpe AUS')
-
-    # Achsen
-    ax.set_title(f'Abpumpversuch: {projekt_name}', fontsize=14, fontweight='bold')
-    ax.set_xlabel('Zeit [min]')
-    ax.set_ylabel('Tiefe unter GOK [m]')
-    
-    # WICHTIG: Y-Achse umdrehen & Limits setzen
-    ax.set_ylim(max_tiefe, 0) # Von Max-Tiefe bis 0 (oben)
-    
-    ax.grid(True, linestyle='--', alpha=0.6)
-    ax.legend()
-    
-    # Anzeigen in Streamlit
+    plt.tight_layout()
     st.pyplot(fig)
     
-    # Download Button für das Protokoll
+    # Download Button
+    csv = edited_df.to_csv(index=False).encode('utf-8')
     st.download_button(
-        label="Diagramm als Bild speichern 📸",
-        data=edited_df.to_csv(index=False).encode('utf-8'),
-        file_name='bohrprotokoll_daten.csv',
+        label="Daten als CSV herunterladen 💾",
+        data=csv,
+        file_name='pumpversuch_daten.csv',
         mime='text/csv',
     )
