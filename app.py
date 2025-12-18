@@ -31,11 +31,11 @@ zeit_intervalle = list(range(0, gesamt_dauer_min + 1, 15))
 default_pegel = []
 for t in zeit_intervalle:
     if t <= pump_end_min:
-        # Absenkung
+        # Absenkung (simuliert)
         wert = rws + (1.5 * np.log10(t + 1) / np.log10(pump_end_min + 1)) 
         if t == 0: wert = rws
     else:
-        # Wiederanstieg
+        # Wiederanstieg (simuliert)
         time_recovery = t - pump_end_min
         wert = default_pegel[-1] - (default_pegel[-1] - rws) * (time_recovery / 120)
         if wert < rws: wert = rws
@@ -71,7 +71,6 @@ if st.button("Diagramme aktualisieren 🔄", type="primary"):
     absenkung_s = pegel - rws
 
     # --- PLOT START (3 Diagramme untereinander) ---
-    # Wir machen das Bild höher (figsize=(10, 15))
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 15), gridspec_kw={'height_ratios': [2, 1, 2]})
     
     # ---------------------------------------------------------
@@ -108,10 +107,44 @@ if st.button("Diagramme aktualisieren 🔄", type="primary"):
     # ---------------------------------------------------------
     # Diagramm 3: Förderleistung Q vs. Absenkung s
     # ---------------------------------------------------------
-    # X = Q (Förderleistung), Y = s (Absenkung)
-    
     # Wir zeichnen den Pfad der Punkte
     ax3.plot(q_values, absenkung_s, marker='o', markersize=5, linestyle='-', linewidth=1.5, color='#e76f51', label='Verlauf (Hysterese)')
     
-    # Startpunkt markieren
-    ax3.annotate('Start', xy=(q_values[0], absenkung_s[0]), xytext=(q_values[0]+0.2, absenkung_s
+    # Startpunkt markieren (HIER WAR DER FEHLER - Jetzt korrigiert)
+    # Wir nutzen .iloc[0] für den sicheren Zugriff auf den ersten Wert der Pandas-Serie
+    start_q = q_values[0]
+    start_s = absenkung_s.iloc[0]
+    
+    ax3.annotate(
+        'Start', 
+        xy=(start_q, start_s), 
+        xytext=(start_q + 0.5, start_s), 
+        arrowprops=dict(facecolor='black', arrowstyle='->'), 
+        fontsize=9
+    )
+    
+    ax3.set_xlabel('Förderleistung Q [m³/h]', fontsize=11)
+    ax3.set_ylabel('Absenkung s [m]', fontsize=11)
+    ax3.set_title('3. Leistungskennlinie (Q vs s)', fontsize=13, fontweight='bold')
+    
+    # Y-Achse umdrehen (Absenkung nach unten)
+    ax3.invert_yaxis()
+    
+    # X-Achse Limits
+    ax3.set_xlim(-0.5, q_soll + 1.5)
+    
+    ax3.grid(True, linestyle='--', alpha=0.6)
+    ax3.legend()
+
+    # Layout straffen
+    plt.tight_layout()
+    st.pyplot(fig)
+    
+    # CSV Download
+    csv = edited_df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="Daten herunterladen 💾",
+        data=csv,
+        file_name='pumpversuch_daten.csv',
+        mime='text/csv',
+    )
