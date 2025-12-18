@@ -57,21 +57,17 @@ if st.button("Diagramme aktualisieren 🔄", type="primary"):
     zeiten = edited_df["Zeit [min]"]
     pegel = edited_df["Wasserstand [m]"]
     
-    # Berechnungen
-    # A) Förderrate Q (Logik: < pump_end_min)
+    # Berechnungen: Förderrate Q (Logik: < pump_end_min)
     q_values = []
     for t in zeiten:
         if t < pump_end_min:
              q_values.append(q_soll)
         else:
              q_values.append(0)
-             
-    # B) Absenkung s (für das 3. Diagramm)
-    # s = Aktueller Pegel - Ruhewasserspiegel
-    absenkung_s = pegel - rws
 
-    # --- PLOT START (3 Diagramme untereinander) ---
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 15), gridspec_kw={'height_ratios': [2, 1, 2]})
+    # --- PLOT START (2 Diagramme untereinander) ---
+    # sharex=True sorgt dafür, dass beide die gleiche X-Achse nutzen
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10), sharex=True, gridspec_kw={'height_ratios': [2, 1]})
     
     # ---------------------------------------------------------
     # Diagramm 1: Zeit vs. Wasserstand (Klassisch)
@@ -84,8 +80,6 @@ if st.button("Diagramme aktualisieren 🔄", type="primary"):
     ax1.invert_yaxis()
     ax1.grid(True, linestyle='--', alpha=0.6)
     ax1.legend(loc='upper right')
-    # X-Achse ausblenden (teilen sich Achse mit Diagramm 2)
-    ax1.tick_params(labelbottom=False)
 
     # ---------------------------------------------------------
     # Diagramm 2: Zeit vs. Förderleistung Q
@@ -103,38 +97,6 @@ if st.button("Diagramme aktualisieren 🔄", type="primary"):
     ticks = np.arange(0, gesamt_dauer_min + 1, 60)
     ax2.set_xticks(ticks)
     ax2.set_xticklabels([f"{int(t/60)}h" for t in ticks])
-
-    # ---------------------------------------------------------
-    # Diagramm 3: Förderleistung Q vs. Absenkung s
-    # ---------------------------------------------------------
-    # Wir zeichnen den Pfad der Punkte
-    ax3.plot(q_values, absenkung_s, marker='o', markersize=5, linestyle='-', linewidth=1.5, color='#e76f51', label='Verlauf (Hysterese)')
-    
-    # Startpunkt markieren (HIER WAR DER FEHLER - Jetzt korrigiert)
-    # Wir nutzen .iloc[0] für den sicheren Zugriff auf den ersten Wert der Pandas-Serie
-    start_q = q_values[0]
-    start_s = absenkung_s.iloc[0]
-    
-    ax3.annotate(
-        'Start', 
-        xy=(start_q, start_s), 
-        xytext=(start_q + 0.5, start_s), 
-        arrowprops=dict(facecolor='black', arrowstyle='->'), 
-        fontsize=9
-    )
-    
-    ax3.set_xlabel('Förderleistung Q [m³/h]', fontsize=11)
-    ax3.set_ylabel('Absenkung s [m]', fontsize=11)
-    ax3.set_title('3. Leistungskennlinie (Q vs s)', fontsize=13, fontweight='bold')
-    
-    # Y-Achse umdrehen (Absenkung nach unten)
-    ax3.invert_yaxis()
-    
-    # X-Achse Limits
-    ax3.set_xlim(-0.5, q_soll + 1.5)
-    
-    ax3.grid(True, linestyle='--', alpha=0.6)
-    ax3.legend()
 
     # Layout straffen
     plt.tight_layout()
